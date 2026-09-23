@@ -1,0 +1,12 @@
+services:
+  supabase-insert-helper:
+    build: .
+    container_name: supabase-insert-helper
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env
+    environment:
+      - PORT=8081
+      - WORKER_COUNT=${WORKER_COUNT:-10}
+    restart: unless-stopped
