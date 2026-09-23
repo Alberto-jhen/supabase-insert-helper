@@ -1,0 +1,39 @@
+name: Go CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  validate:
+    name: Build, Lint and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22' 
+          cache: true        
+
+      - name: Verify Dependencies (go mod tidy)
+        run: |
+          go mod tidy
+          git diff --exit-code
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Run Tests
+        run: go test -v -race ./...
+
+      - name: Build Binary
+        run: go build -v -o microservice ./cmd/server
