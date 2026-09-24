@@ -77,35 +77,11 @@ supabase-insert-helper/
 
 ## How It Works
 
-### 1. Startup
+The microservice receives a batch of image URLs via `POST /ingest/images`, validates the payload, and returns `202 Accepted` immediately. Each URL is converted into a job and submitted to a worker pool that downloads and uploads images concurrently in the background.
 
-1. `main.go` loads environment variables from `.env` using `godotenv`.
-2. It validates that `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are present.
-3. It initializes the **singleton Supabase client** via `storage.GetClient`.
-4. It creates a **worker pool** with `WORKER_COUNT` goroutines and a background result collector.
-5. It registers `POST /ingest/images` and starts the HTTP server on port `8081`.
+For a detailed explanation of the worker pool design — including goroutines, channels, backpressure, and graceful shutdown — see [docs/worker_pools.md](docs/worker_pools.md).
 
-### 2. Request Flow
-
-A request to `POST /ingest/images` flows through these stages:
-
-1. The HTTP server routes it to `api.ImageIngestHandler`.
-2. The handler validates the `Content-Type` header.
-3. It parses and validates the JSON body against `models.ImagePayload`.
-4. It converts every URL into a `models.ImageJob` and submits each job to the pool's `jobs` channel.
-5. It returns `202 Accepted` to the client.
-6. Worker goroutines pick up jobs, download the image bytes, detect the MIME type, and upload the object to Supabase Storage.
-7. Each worker writes a `models.ImageResult` to the `results` channel.
-8. The result collector logs successes and failures with `slog`.
-
-### 3. Concurrency Model
-
-- The HTTP handler is the **producer**: it converts the incoming `ImagePayload` into many `ImageJob` instances and pushes them into a buffered `jobs` channel.
-- A fixed number of **worker goroutines** are the **consumers**: each worker reads one job, downloads the image, uploads it to Supabase Storage, and writes an `ImageResult` to a `results` channel.
-- A dedicated **result collector** goroutine reads from `results` and logs success or failure.
-- Buffered channels absorb bursts and provide **backpressure**: if workers cannot keep up, the channel fills up and the HTTP handler slows down naturally instead of exhausting memory.
-
-### 4. Object Paths in Supabase Storage
+### Object Paths in Supabase Storage
 
 Each uploaded image is stored under a deterministic path:
 
@@ -365,25 +341,7 @@ The microservice returns `202 Accepted` immediately. It does **not** wait for up
 
 ## Tuning the Worker Pool
 
-`WORKER_COUNT` controls how many images can be downloaded and uploaded simultaneously.
-
-### Trade-offs
-
-| Low `WORKER_COUNT` | High `WORKER_COUNT` |
-|---|---|
-| Lower CPU, memory, and network usage. | Higher throughput. |
-| Less pressure on Supabase Storage rate limits. | More risk of `429 Too Many Requests`. |
-| Slower overall ingestion for very large batches. | More memory usage per concurrent download. |
-
-### Recommendation
-
-Start with the default `10`. Monitor:
-
-- Server logs for `429` rate-limit errors.
-- Memory usage of the container.
-- End-to-end throughput for your typical batch size.
-
-Adjust `WORKER_COUNT` up or down without rebuilding the image by changing the environment variable.
+`WORKER_COUNT` controls how many images can be downloaded and uploaded simultaneously. For a detailed discussion of trade-offs and practical guidelines, see [docs/worker_pools.md](docs/worker_pools.md).
 
 ---
 
