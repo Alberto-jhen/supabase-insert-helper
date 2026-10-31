@@ -86,15 +86,16 @@ For a detailed explanation of the worker pool design — including goroutines, c
 Each uploaded image is stored under a deterministic path:
 
 ```text
-uploads/{index}_{first-8-chars-of-sha256(url+index)}{extension}
+{folder}/{index}_{hash}_{name}{extension}
 ```
 
-For example:
+- `{folder}`: the `folder` sent in the request, or `uploads` when it is omitted.
+- `{index}`: position of the URL in the request.
+- `{hash}`: first 8 bytes (16 hex characters) of the SHA-256 of `url + index`. It keeps keys unique, so two different URLs with the same file name never overwrite each other.
+- `{name}`: the `name` of that image in `images` when sent, otherwise the file name from the last segment of the URL path, without its extension (query strings are ignored). Known image extensions such as `.jpg` are removed from the name, and unsafe characters are replaced with `_`. Omitted when there is no usable name.
+- `{extension}`: taken from the response `Content-Type`, falling back to the URL's extension, then `.bin`.
 
-```text
-uploads/0_fdaad454.jpg
-uploads/1_f5c8a6ad.png
-```
+For example, `https://picsum.photos/id/101/200/300` at index 0 is stored as `uploads/0_fdaad454967159a7_300.jpg` without a folder, or as `directorio/0_fdaad454967159a7_300.jpg` with `"folder": "directorio"`.
 
 The service sends the header `x-upsert: true`, so re-submitting the same URLs overwrites existing objects instead of failing with a duplicate-key error.
 
@@ -158,9 +159,9 @@ curl -X POST http://localhost:8081/ingest/images \
   -H "Content-Type: application/json" \
   -d '{
     "bucket_name": "prueba",
-    "image_urls": [
-      "https://example.com/image1.jpg",
-      "https://example.com/image2.jpg"
+    "images": [
+      {"url": "https://example.com/image1.jpg", "name": "imagen-1"},
+      {"url": "https://example.com/image2.jpg"}
     ]
   }'
 ```
@@ -242,15 +243,32 @@ Content-Type: application/json
 ```json
 {
   "bucket_name": "string",
-  "image_urls": ["string"]
+  "folder": "string (optional)",
+  "images": [
+    {"url": "string", "name": "string (optional)"}
+  ]
+}
+```
+
+Example:
+
+```json
+{
+  "bucket_name": "prueba",
+  "folder": "directorio",
+  "images": [
+    {"url": "https://ejemplo.com/fotos/camisa-roja.jpg", "name": "camisa-roja"}
+  ]
 }
 ```
 
 #### Validation Rules
 
-- `bucket_name` is required and non-empty.
-- `image_urls` must contain at least one URL.
-- No URL inside `image_urls` may be an empty string.
+- `bucket_name` is required, non-empty, and must not contain `/`. Use `folder` for subfolders.
+- `folder` is optional and defaults to `uploads`. When present, it must be a relative path made of segments with letters, digits, `.`, `_` or `-`, separated by `/`. It cannot start or end with `/`, and cannot contain `.` or `..` segments.
+- `images` must contain at least one item.
+- Each item needs a non-empty `url`.
+- `name` is optional. When it is missing or empty, the file name from the URL is used. Known image extensions such as `.jpg` are removed, because the real extension comes from the file type.
 
 #### Response
 
@@ -306,6 +324,25 @@ python scripts/upload_images.py \
   --file urls.txt
 ```
 
+Put the images in a folder inside the bucket:
+
+```bash
+python scripts/upload_images.py \
+  --bucket prueba \
+  --folder directorio \
+  https://example.com/1.jpg
+```
+
+Give each image its own name (one `--name` per URL, in the same order):
+
+```bash
+python scripts/upload_images.py \
+  --bucket prueba \
+  --folder directorio \
+  --name camisa-roja \
+  https://example.com/fotos/camisa-roja.jpg
+```
+
 Point it to a remote or Dockerized instance:
 
 ```bash
@@ -322,10 +359,13 @@ import requests
 
 MICROSERVICE_URL = "http://localhost:8081/ingest/images"
 
-def ingest_images(bucket_name: str, image_urls: list[str]) -> dict:
+def ingest_images(bucket_name: str, images: list[dict], folder: str = "") -> dict:
+    payload = {"bucket_name": bucket_name, "images": images}
+    if folder:
+        payload["folder"] = folder
     response = requests.post(
         MICROSERVICE_URL,
-        json={"bucket_name": bucket_name, "image_urls": image_urls},
+        json=payload,
         headers={"Content-Type": "application/json"},
         timeout=30,
     )

@@ -10,9 +10,18 @@ type SupabaseClient struct {
 }
 
 // ImagePayload represents the JSON body expected by POST /ingest/images.
+// Folder is optional; when empty, images are stored in the default "uploads" folder.
 type ImagePayload struct {
-	BucketName string   `json:"bucket_name"`
-	ImageURLs  []string `json:"image_urls"`
+	BucketName string      `json:"bucket_name"`
+	Folder     string      `json:"folder"`
+	Images     []ImageItem `json:"images"`
+}
+
+// ImageItem is one image to ingest: its public URL and an optional file name.
+// When Name is empty, the file name is taken from the URL.
+type ImageItem struct {
+	URL  string `json:"url"`
+	Name string `json:"name"`
 }
 
 // RecordPayload represents the JSON body expected by POST /ingest/records.
@@ -25,6 +34,8 @@ type RecordPayload struct {
 type ImageJob struct {
 	URL        string
 	BucketName string
+	Folder     string
+	Name       string
 	Index      int
 }
 
