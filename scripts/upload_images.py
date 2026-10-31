@@ -10,6 +10,8 @@ Usage:
     python upload_images.py --bucket my-bucket https://example.com/1.jpg https://example.com/2.jpg
     python upload_images.py --bucket my-bucket --file urls.txt
     python upload_images.py --bucket my-bucket --url http://localhost:8081/ingest/images --file urls.txt
+    python upload_images.py --bucket my-bucket --folder products/2026 https://example.com/1.jpg
+    python upload_images.py --bucket my-bucket --name camisa-roja https://example.com/fotos/camisa-roja.jpg
 """
 
 import argparse
@@ -46,6 +48,15 @@ def main():
         help="Path to a text file with one image URL per line (optional)",
     )
     parser.add_argument(
+        "--folder",
+        help="Optional folder inside the bucket, e.g. 'products/2026'",
+    )
+    parser.add_argument(
+        "--name",
+        action="append",
+        help="Name for each image, in the same order as the URLs. Repeat once per image.",
+    )
+    parser.add_argument(
         "image_urls",
         nargs="*",
         help="One or more public image URLs",
@@ -63,10 +74,17 @@ def main():
         print("Error: at least one image URL is required.", file=sys.stderr)
         sys.exit(1)
 
+    names = args.name or [""] * len(urls)
+    if len(names) != len(urls):
+        print("Error: pass one --name per image URL.", file=sys.stderr)
+        sys.exit(1)
+
     payload = {
         "bucket_name": args.bucket,
-        "image_urls": urls,
+        "images": [{"url": url, "name": name} for url, name in zip(urls, names)],
     }
+    if args.folder:
+        payload["folder"] = args.folder
 
     try:
         response = requests.post(
